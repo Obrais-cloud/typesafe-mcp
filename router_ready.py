@@ -20,8 +20,11 @@ MSGFILE = os.path.join(BASE, "ROUTER-READY.msg.txt")
 TELEGRAM = os.path.expanduser("~/.openclaw/scripts/send-telegram-summary.sh")
 
 
+TELEGRAM_TARGET = os.environ.get("TS_TELEGRAM_TARGET", "1382220688")
+
+
 def _notify(r):
-    """Best-effort: avisa a Brais por Telegram (canal de la flota) al saltar el flag."""
+    """Best-effort: avisa a Brais por Telegram (openclaw) al saltar el flag."""
     txt = ("\U0001F7E2 TypeSafe router LISTO para activar (datos suficientes en la sombra).\n"
            f"decisiones={r['n']} | dias={r['dias']} | tiers={r['tiers']}\n"
            f"conf_mediana={r['conf_mediana']} | baja_conf={r['baja_conf_pct']}%\n"
@@ -29,15 +32,17 @@ def _notify(r):
     try:
         open(MSGFILE, "w").write(txt)
     except OSError:
-        return
-    if os.path.exists(TELEGRAM):
-        env = dict(os.environ)
-        env["PATH"] = ("/opt/homebrew/bin:" + os.path.expanduser("~/.hermes/node/bin")
-                       + ":" + env.get("PATH", ""))
-        try:
-            subprocess.run(["/bin/bash", TELEGRAM, MSGFILE], env=env, timeout=50, check=False)
-        except Exception:
-            pass
+        pass
+    env = dict(os.environ)
+    env["PATH"] = ("/opt/homebrew/bin:" + os.path.expanduser("~/.hermes/node/bin")
+                   + ":" + env.get("PATH", ""))
+    try:  # openclaw directo (ruta verificada), con freno de tiempo
+        subprocess.run(["openclaw", "message", "send", "--channel", "telegram",
+                        "--target", TELEGRAM_TARGET, "--message", txt, "--json"],
+                       env=env, timeout=50, check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 TH = {
     "min_decisiones": 200,        # volumen de tráfico real
