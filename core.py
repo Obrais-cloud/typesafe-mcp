@@ -205,27 +205,37 @@ async def do_systemone(state, questions: dict, ts_model: str = TS_MODEL_DEFAULT)
     return {"model": resp.get("model"), "answers": resp.get("answers", {}), "usage": resp.get("usage", {})}
 
 
-async def do_rerank(items: list, criterion: str, ts_model: str = TS_MODEL_DEFAULT) -> dict:
-    """items: list of {id, text} (or strings). criterion: NL scale, e.g. 'urgency'."""
+async def do_rerank(items: list, criterion: str, ts_model: str = TS_MODEL_DEFAULT,
+                    levels: list | None = None, instructions: str | None = None) -> dict:
+    """items: list of {id, text} (or strings). criterion: NL scale, e.g. 'urgency'.
+
+    If `levels` (+ `instructions`) are supplied, the LLM compile step is skipped and items
+    are scored directly against that fixed Score (fast, no fleet LLM). Otherwise the ordered
+    levels are compiled once via the fleet LLM. The result always echoes levels+instructions
+    so callers can cache them.
+    """
     norm_items = [{"id": str(it.get("id", n)), "text": it["text"]} if isinstance(it, dict)
                   else {"id": str(n), "text": str(it)} for n, it in enumerate(items)]
     async with httpx.AsyncClient() as client:
-        # 1) build ordered Score levels for the criterion, once.
-        prompt = (f"Build ordered levels for scoring items by this criterion: {criterion}. "
-                  "Return ONLY JSON {\"questions\": {\"q\": {\"type\": \"score\", \"instructions\": \"...\", "
-                  "\"criteria\": [\"lowest ...\", ..., \"highest ...\"]}}}. Concrete, independent levels.")
-        compiled = await _llm_json(client, [{"role": "system", "content": COMPILER_SYSTEM},
-                                            {"role": "user", "content": prompt}])
-        questions = _validate_questions(compiled.get("questions"))
-        qid = next(iter(questions))
-        levels = questions[qid]["criteria"]
+        if levels and instructions:
+            question = {"type": "score", "instructions": instructions, "criteria": list(levels)}
+        else:
+            prompt = (f"Build ordered levels for scoring items by this criterion: {criterion}. "
+                      "Return ONLY JSON {\"questions\": {\"q\": {\"type\": \"score\", \"instructions\": \"...\", "
+                      "\"criteria\": [\"lowest ...\", ..., \"highest ...\"]}}}. Concrete, independent levels.")
+            compiled = await _llm_json(client, [{"role": "system", "content": COMPILER_SYSTEM},
+                                                {"role": "user", "content": prompt}])
+            questions = _validate_questions(compiled.get("questions"))
+            question = questions[next(iter(questions))]
+        levels = question["criteria"]
+        instructions = question["instructions"]
         maxlvl = len(levels) - 1
 
         async def score_one(it):
-            req = {"model": ts_model, "state": it["text"], "questions": {qid: questions[qid]}}
+            req = {"model": ts_model, "state": it["text"], "questions": {"q": question}}
             try:
                 resp = await _ts_execute(client, req)
-                a = resp["answers"][qid]
+                a = resp["answers"]["q"]
                 return {"id": it["id"], "score": round(a["score"], 3),
                         "norm": round(a["score"] / maxlvl, 3), "confidence": round(a["confidence"], 3),
                         "tokens": resp.get("usage", {}).get("input_tokens", 0)}
@@ -236,7 +246,7 @@ async def do_rerank(items: list, criterion: str, ts_model: str = TS_MODEL_DEFAUL
     ok = [r for r in results if "error" not in r]
     ok.sort(key=lambda r: r["score"], reverse=True)
     errs = [r for r in results if "error" in r]
-    return {"criterion": criterion, "levels": levels,
+    return {"criterion": criterion, "instructions": instructions, "levels": levels,
             "ranked": ok + errs, "total_tokens": sum(r.get("tokens", 0) for r in ok)}
 
 

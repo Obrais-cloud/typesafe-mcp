@@ -25,7 +25,6 @@ QUEUE = os.path.join(BASE, "queue")
 PROCESSED = os.path.join(BASE, "processed")
 DIGESTS = os.path.join(BASE, "digests")
 LOG = os.path.join(BASE, "triage.log")
-LEVELS_CACHE = os.path.join(BASE, "triage-levels.json")
 CRITERION = "urgencia para el equipo de soporte, de no urgente a crítico"
 
 
@@ -59,23 +58,8 @@ async def main() -> int:
         return 0
 
     payload = [{"id": it["id"], "text": (it["subject"] + "\n" + it["body"]).strip()} for it in items]
-    # Cache de niveles: sólo se compila con el LLM la primera vez; luego sólo scoring TypeSafe.
-    cached = None
-    if os.path.exists(LEVELS_CACHE):
-        try:
-            c = json.load(open(LEVELS_CACHE))
-            if c.get("criterion") == CRITERION and c.get("levels"):
-                cached = c
-        except (json.JSONDecodeError, OSError):
-            cached = None
     try:
-        if cached:
-            res = await core.do_rerank(payload, CRITERION,
-                                       levels=cached["levels"], instructions=cached["instructions"])
-        else:
-            res = await core.do_rerank(payload, CRITERION)
-            json.dump({"criterion": CRITERION, "instructions": res["instructions"], "levels": res["levels"]},
-                      open(LEVELS_CACHE, "w"), ensure_ascii=False, indent=2)
+        res = await core.do_rerank(payload, CRITERION)
     except Exception as e:  # flota/API caída: no perder la cola
         log(f"rerank FALLÓ, cola intacta: {type(e).__name__} {e}")
         return 1
