@@ -8,6 +8,7 @@ NO activa nada (activar = cambiar el routing de ollaroute, decisión humana).
 """
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -15,6 +16,28 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 LOG = os.path.join(BASE, "router-shadow.jsonl")
 FLAG = os.path.join(BASE, "ROUTER-READY.flag")
 READYLOG = os.path.join(BASE, "router-ready.log")
+MSGFILE = os.path.join(BASE, "ROUTER-READY.msg.txt")
+TELEGRAM = os.path.expanduser("~/.openclaw/scripts/send-telegram-summary.sh")
+
+
+def _notify(r):
+    """Best-effort: avisa a Brais por Telegram (canal de la flota) al saltar el flag."""
+    txt = ("\U0001F7E2 TypeSafe router LISTO para activar (datos suficientes en la sombra).\n"
+           f"decisiones={r['n']} | dias={r['dias']} | tiers={r['tiers']}\n"
+           f"conf_mediana={r['conf_mediana']} | baja_conf={r['baja_conf_pct']}%\n"
+           "Siguiente paso: revisar y activar el routing de ollaroute por TypeSafe.")
+    try:
+        open(MSGFILE, "w").write(txt)
+    except OSError:
+        return
+    if os.path.exists(TELEGRAM):
+        env = dict(os.environ)
+        env["PATH"] = ("/opt/homebrew/bin:" + os.path.expanduser("~/.hermes/node/bin")
+                       + ":" + env.get("PATH", ""))
+        try:
+            subprocess.run(["/bin/bash", TELEGRAM, MSGFILE], env=env, timeout=50, check=False)
+        except Exception:
+            pass
 
 TH = {
     "min_decisiones": 200,        # volumen de tráfico real
@@ -78,6 +101,7 @@ def main():
             f"dias={r['dias']} conf_med={r['conf_mediana']} baja%={r['baja_conf_pct']}\n")
         if r["ready"] and not os.path.exists(FLAG):
             open(FLAG, "w").write(json.dumps(r, ensure_ascii=False, indent=2))
+            _notify(r)  # avisa una sola vez, al crear el flag
     return 0 if r["ready"] else 1
 
 
