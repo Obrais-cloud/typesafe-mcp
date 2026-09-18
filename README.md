@@ -30,3 +30,7 @@ Env opcionales: `TS_MCP_LLM_CHAIN` (JSON de la cadena de fallback), `TS_MCP_OLLA
 
 - Compilación robusta: `think:false` + strip `<think>` + reparación de JSON desbalanceado.
 - `TYPESAFE_API_KEY` solo de entorno; nunca en disco ni en la imagen.
+
+## Secreto (fleet)
+
+La key se lee de `TYPESAFE_API_KEY` (env) o, si no está, de `~/typesafe-mcp/.env` (línea `TYPESAFE_API_KEY=...`). Así el registro en openclaw/hermes **no** lleva el secreto. `.env` está en `.gitignore`.

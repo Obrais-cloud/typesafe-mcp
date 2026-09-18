@@ -56,7 +56,22 @@ Return ONLY the JSON object, no prose, no markdown fences.
 def _key() -> str:
     k = os.environ.get("TYPESAFE_API_KEY")
     if not k:
-        raise RuntimeError("TYPESAFE_API_KEY not set")
+        # Fallback: a .env next to this file or in ~/typesafe-mcp (key never in gateway config).
+        for path in (os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"),
+                     os.path.expanduser("~/typesafe-mcp/.env")):
+            try:
+                with open(path) as fh:
+                    for line in fh:
+                        line = line.strip()
+                        if line.startswith("TYPESAFE_API_KEY="):
+                            k = line.split("=", 1)[1].strip().strip('"').strip("'")
+                            break
+            except OSError:
+                continue
+            if k:
+                break
+    if not k:
+        raise RuntimeError("TYPESAFE_API_KEY not set (env or ~/typesafe-mcp/.env)")
     return k
 
 
