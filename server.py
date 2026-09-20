@@ -10,7 +10,10 @@ Run: python3 server.py   (stdio MCP)
 """
 from __future__ import annotations
 
+import asyncio
+
 import core
+import jevkit
 
 # Compat: mcp v1 exposes FastMCP; v2 renamed it to MCPServer. Both have .tool()/.run().
 try:
@@ -53,6 +56,39 @@ async def systemone(state, questions: dict,
     Use this when you already know the exact typed questions; use `judge` otherwise.
     """
     return await core.do_systemone(state, questions, ts_model)
+
+
+# ── canonical shared judgments (jevkit): same definitions the fleet's CLIs use ──
+@mcp.tool()
+async def quality_judge(prompt: str, response: str, criteria: str | None = None) -> dict:
+    """Grade one response against criteria with a calibrated Jev Score.
+
+    Returns a normalized 0..1 `value` plus raw score, confidence and the full
+    distribution. This is the SAME judge ollaeval/localeval/olladiff use, so
+    scores are comparable across the fleet.
+    """
+    return await asyncio.to_thread(jevkit.quality_judge, prompt, response, criteria)
+
+
+@mcp.tool()
+async def compare(prompt: str, response_a: str, response_b: str,
+                  criteria: str | None = None) -> dict:
+    """Pick the better of two responses to the same prompt (Jev Choice).
+
+    Returns winner ('a' | 'b' | 'tie'), confidence and the probability spread —
+    the same pairwise judge ollarena/olladiff use.
+    """
+    return await asyncio.to_thread(jevkit.compare_pair, prompt, response_a, response_b, criteria)
+
+
+@mcp.tool()
+async def classify_push_failure(error_text: str) -> dict:
+    """Classify a git push failure from its error text (Jev).
+
+    Returns the typed cause + probabilities, whether a history rewrite is likely
+    needed, a severity score, and code-owned suggested fixes.
+    """
+    return await asyncio.to_thread(jevkit.classify_push_failure, error_text)
 
 
 if __name__ == "__main__":
