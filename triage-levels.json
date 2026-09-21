@@ -1,0 +1,10 @@
+{
+  "criterion": "urgencia para el equipo de soporte, de no urgente a crítico",
+  "instructions": "Como de urgente es este mensaje de soporte para el equipo que lo atiende?",
+  "levels": [
+    "No urgente: una pregunta, un agradecimiento o un detalle cosmetico que no impide trabajar a nadie",
+    "Conviene atenderlo pronto: algo esta degradado o confuso pero el cliente puede seguir trabajando",
+    "Urgente: el cliente esta bloqueado en parte de su trabajo, o hay dinero afectado",
+    "Critico: el cliente esta totalmente bloqueado, perdiendo dinero de forma continua, o amenaza con irse"
+  ]
+}

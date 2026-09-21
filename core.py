@@ -26,6 +26,10 @@ TS_URL = os.environ.get("TS_MCP_TS_URL", "https://api.typesafe.ai/v1/systemone")
 TS_MODEL_DEFAULT = "jev-latest"
 OLLAWAKE = os.environ.get("TS_MCP_OLLAWAKE", "http://100.70.244.85:11436")
 VALID_TYPES = {"noul", "choice", "score"}
+# v1 API limits, from docs.typesafe.ai/api and /models.
+MIN_SCORE_LEVELS = 2
+MAX_SCORE_LEVELS = 10
+MAX_CHOICE_OPTIONS = 255
 
 DEFAULT_CHAIN = [
     {"label": "corsair",     "url": "http://100.94.117.48:11434/api/chat", "model": "qwen3.8:27b",     "wake": "corsair"},
@@ -49,6 +53,29 @@ type is one of:
            lowest first, each concrete and independently understandable (not bare words).
 
 One narrow judgment per question. Do not invent judgments not asked for.
+
+Design rules, from the TypeSafe agent skill and the live docs:
+- Score levels must describe concrete SITUATIONS, each understandable on its own.
+  The model never sees a level's number or its neighbours, so "worse than the one
+  above", bare adjectives and bare numbers all carry no information. 2 to 10 levels.
+- Keep one Score to ONE dimension. "punctual and skilled and experienced" is three
+  questions; an item high on one and low on another cannot be placed at all.
+- Give a Choice every option that could apply, and add an explicit no-match option
+  ("other", "none of the above") whenever the list might not cover an input. The
+  model cannot choose a value that was not sent.
+- Use one Noul per label when several labels may apply at once. A Choice is
+  relative and settles WHICH option wins; a Noul is absolute and can be low for
+  every label.
+- A Noul near 0.5 means yes and no are equally likely, NOT medium intensity. If
+  the answer is a degree, use a Score with described levels instead.
+- Atomic does not mean trivial. Splitting is for independently useful dimensions;
+  do not split so far that the relationship being judged is destroyed. A bounded
+  action selection or a contextual interpretation is one judgment.
+- Never ask for something code computes exactly: arithmetic, counting, date
+  comparison, sorting. Ask for the judgment and leave the maths to the caller.
+- Put contrasts in structured criteria when two options keep getting confused:
+  an object with what it covers, what it does NOT cover, and a few examples.
+
 Return ONLY the JSON object, no prose, no markdown fences.
 """
 
@@ -123,15 +150,67 @@ def _validate_questions(q) -> dict:
             raise ValueError(f"question '{qid}' missing instructions")
         crit = spec.get("criteria")
         t = spec["type"]
-        if t == "score" and not isinstance(crit, list):
-            raise ValueError(f"question '{qid}' (score) needs an ordered list")
-        if t == "choice" and not isinstance(crit, dict):
-            raise ValueError(f"question '{qid}' (choice) needs an options object")
+        # Limits from the v1 API contract. A compiled question that breaks one of
+        # these comes back as a 422 from the service, which is a worse place to
+        # find out than here: the fleet LLM happily emits 12 levels if asked.
+        if t == "score":
+            if not isinstance(crit, list):
+                raise ValueError(f"question '{qid}' (score) needs an ordered list")
+            if not (MIN_SCORE_LEVELS <= len(crit) <= MAX_SCORE_LEVELS):
+                raise ValueError(
+                    f"question '{qid}' (score) has {len(crit)} levels; "
+                    f"the API accepts {MIN_SCORE_LEVELS} to {MAX_SCORE_LEVELS}"
+                )
+            if any(not str(c).strip() for c in crit):
+                raise ValueError(f"question '{qid}' (score) has an empty level")
+        if t == "choice":
+            if not isinstance(crit, dict):
+                raise ValueError(f"question '{qid}' (choice) needs an options object")
+            if not crit:
+                raise ValueError(f"question '{qid}' (choice) has no options")
+            if len(crit) > MAX_CHOICE_OPTIONS:
+                raise ValueError(
+                    f"question '{qid}' (choice) has {len(crit)} options; "
+                    f"the API accepts at most {MAX_CHOICE_OPTIONS}"
+                )
+        if t == "noul" and crit is not None:
+            if not isinstance(crit, dict) or set(crit) - {"true", "false"}:
+                raise ValueError(f"question '{qid}' (noul) criteria must be {{true, false}}")
         item = {"type": t, "instructions": spec["instructions"]}
         if crit is not None:
             item["criteria"] = crit
         out[str(qid)] = item
     return out
+
+
+# ---- batching --------------------------------------------------------------
+# The context budget is 64k tokens for the whole request and 32k for the state
+# plus the single longest question. Characters are a crude proxy for tokens, so
+# this stays well under: roughly 4 chars per token, and half the 32k budget.
+MAX_CHUNK_CHARS = 48_000
+MAX_CHUNK_ITEMS = 120
+
+
+def _chunk_items(items: list) -> list:
+    """Split items into batches that fit one request. An item too large to share
+    a request travels alone rather than being dropped or truncated."""
+    chunks, current, size = [], [], 0
+    for it in items:
+        n = len(it["text"]) + 64  # the item's own text plus its question overhead
+        if n >= MAX_CHUNK_CHARS:
+            if current:
+                chunks.append(current)
+                current, size = [], 0
+            chunks.append([it])
+            continue
+        if current and (size + n > MAX_CHUNK_CHARS or len(current) >= MAX_CHUNK_ITEMS):
+            chunks.append(current)
+            current, size = [], 0
+        current.append(it)
+        size += n
+    if current:
+        chunks.append(current)
+    return chunks
 
 
 # ---- fleet LLM (compile) with fallback -------------------------------------
@@ -231,22 +310,67 @@ async def do_rerank(items: list, criterion: str, ts_model: str = TS_MODEL_DEFAUL
         instructions = question["instructions"]
         maxlvl = len(levels) - 1
 
-        async def score_one(it):
-            req = {"model": ts_model, "state": it["text"], "questions": {"q": question}}
-            try:
-                resp = await _ts_execute(client, req)
-                a = resp["answers"]["q"]
-                return {"id": it["id"], "score": round(a["score"], 3),
-                        "norm": round(a["score"] / maxlvl, 3), "confidence": round(a["confidence"], 3),
-                        "tokens": resp.get("usage", {}).get("input_tokens", 0)}
-            except httpx.HTTPError as e:
-                return {"id": it["id"], "error": str(e)}
+        # One request per item costs the question tokens N times and pays N round
+        # trips. Putting every item in a single `state` and asking one Score per
+        # item is the pattern the rerank and semantic-find cookbooks use, and the
+        # parallel-questions cookbook measures it at 12.2x cheaper and 10x faster
+        # with no change in the answers. Questions are evaluated in isolation, so
+        # each one still judges only the item its instructions name.
+        chunks = _chunk_items(norm_items)
 
-        results = await asyncio.gather(*[score_one(it) for it in norm_items])
+        async def score_chunk(chunk: list) -> list:
+            # Items are keyed by a safe synthetic name, not by array position.
+            #
+            # Measured on 12 support tickets: with each item carrying a visible
+            # `id` field AND the question addressing it positionally
+            # (`items[4].text`), six of the twelve answers came back judging the
+            # wrong item. Dropping the id, naming the id in the question, or
+            # keying the object by id each scored twelve out of twelve. Mixing a
+            # positional reference with a visible id label is what breaks it.
+            #
+            # Named keys also avoid making the model count to the Nth element,
+            # which the docs list as unreliable and worse as N grows. The
+            # caller's own ids may contain dots or spaces, so they are not used
+            # as keys directly; they are mapped back after.
+            keys = [f"i{n}" for n in range(len(chunk))]
+            state = {"items": {k: it["text"] for k, it in zip(keys, chunk)}}
+            questions = {
+                k: {
+                    "type": "score",
+                    "instructions": f"Judging only `items.{k}`: {instructions}",
+                    "criteria": list(levels),
+                }
+                for k in keys
+            }
+            try:
+                resp = await _ts_execute(client, {"model": ts_model, "state": state,
+                                                  "questions": questions})
+            except httpx.HTTPError as e:
+                return [{"id": it["id"], "error": str(e)} for it in chunk]
+
+            used = resp.get("usage", {}).get("input_tokens", 0)
+            # Attribute the shared state cost across the chunk so `total_tokens`
+            # stays comparable with the unbatched numbers callers saw before.
+            per_item = round(used / len(chunk), 1) if chunk else 0
+            out = []
+            for k, it in zip(keys, chunk):
+                a = resp["answers"].get(k)
+                if a is None:
+                    out.append({"id": it["id"], "error": "no answer returned"})
+                    continue
+                out.append({"id": it["id"], "score": round(a["score"], 3),
+                            "norm": round(a["score"] / maxlvl, 3),
+                            "confidence": round(a["confidence"], 3),
+                            "tokens": per_item})
+            return out
+
+        gathered = await asyncio.gather(*[score_chunk(c) for c in chunks])
+        results = [r for chunk_result in gathered for r in chunk_result]
     ok = [r for r in results if "error" not in r]
     ok.sort(key=lambda r: r["score"], reverse=True)
     errs = [r for r in results if "error" in r]
     return {"criterion": criterion, "instructions": instructions, "levels": levels,
-            "ranked": ok + errs, "total_tokens": sum(r.get("tokens", 0) for r in ok)}
+            "ranked": ok + errs, "total_tokens": round(sum(r.get("tokens", 0) for r in ok)),
+            "requests": len(chunks)}
 
 

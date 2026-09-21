@@ -3,3 +3,10 @@ __pycache__/
 .env
 *.env
 .DS_Store
+
+# Runtime output written on every run by triage.py and fleet_weekly.sh
+digests/
+processed/
+queue/
+reports/
+triage.log
