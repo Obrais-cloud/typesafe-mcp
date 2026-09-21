@@ -23,7 +23,7 @@ import urllib.request
 import urllib.error
 
 TS_URL = os.environ.get("TS_MCP_TS_URL", "https://api.typesafe.ai/v1/systemone")
-TS_MODEL = "jev-latest"
+TS_MODEL = (os.environ.get("TYPESAFE_MODEL") or "jev-1.13.0")  # fijado: los alias se mueven, los umbrales no
 
 
 # ── transport ───────────────────────────────────────────────────────────────

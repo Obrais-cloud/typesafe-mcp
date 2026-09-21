@@ -23,7 +23,7 @@ import re
 import httpx
 
 TS_URL = os.environ.get("TS_MCP_TS_URL", "https://api.typesafe.ai/v1/systemone")
-TS_MODEL_DEFAULT = "jev-latest"
+TS_MODEL_DEFAULT = (os.environ.get("TYPESAFE_MODEL") or "jev-1.13.0")  # fijado: los alias se mueven, los umbrales no
 OLLAWAKE = os.environ.get("TS_MCP_OLLAWAKE", "http://100.70.244.85:11436")
 VALID_TYPES = {"noul", "choice", "score"}
 # v1 API limits, from docs.typesafe.ai/api and /models.
