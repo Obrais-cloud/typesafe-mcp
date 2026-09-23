@@ -1,10 +1,11 @@
 {
   "criterion": "urgencia para el equipo de soporte, de no urgente a crítico",
-  "instructions": "Como de urgente es este mensaje de soporte para el equipo que lo atiende?",
+  "instructions": "¿Cómo de urgente es este ticket de soporte para que el equipo de soporte actúe?",
   "levels": [
-    "No urgente: una pregunta, un agradecimiento o un detalle cosmetico que no impide trabajar a nadie",
-    "Conviene atenderlo pronto: algo esta degradado o confuso pero el cliente puede seguir trabajando",
-    "Urgente: el cliente esta bloqueado en parte de su trabajo, o hay dinero afectado",
-    "Critico: el cliente esta totalmente bloqueado, perdiendo dinero de forma continua, o amenaza con irse"
+    "No urgente: consulta general, feedback o petición de mejora sin impacto ni prisa.",
+    "Baja: inconveniente menor o cosmético; el cliente puede seguir trabajando con normalidad.",
+    "Media: una función está rota o degradada pero existe workaround; el cliente está molesto pero operativo.",
+    "Alta: funcionalidad central bloqueada sin workaround, o el cliente pierde dinero o datos de forma activa.",
+    "Crítica: daño grave activo — caída total, brecha de seguridad o datos, o riesgo legal/seguridad que exige respuesta inmediata."
   ]
 }

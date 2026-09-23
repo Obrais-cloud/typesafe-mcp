@@ -107,6 +107,11 @@ def main():
         if r["ready"] and not os.path.exists(FLAG):
             open(FLAG, "w").write(json.dumps(r, ensure_ascii=False, indent=2))
             _notify(r)  # avisa una sola vez, al crear el flag
+    # Under launchd (--monitor) "not ready yet" is the normal daily outcome, not
+    # a failure; exiting 1 made the job look broken in `launchctl list`. An
+    # interactive run still exits 1 so scripts can branch on readiness.
+    if "--monitor" in sys.argv:
+        return 0
     return 0 if r["ready"] else 1
 
 
