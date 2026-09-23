@@ -4,9 +4,15 @@ __pycache__/
 *.env
 .DS_Store
 
-# Runtime output written on every run by triage.py and fleet_weekly.sh
+# Runtime output, written on every run by triage.py, fleet_weekly.sh,
+# router_shadow.py and router_ready.py. None of it belongs in the repo, and
+# leaving any of it untracked blocks deploy/deploy-mini.sh by design.
 digests/
 processed/
 queue/
 reports/
-triage.log
+*.log
+*.jsonl
+ROUTER-READY.flag
+ROUTER-READY.msg.txt
+DEPLOYED_REV
