@@ -11,10 +11,13 @@ Run: python3 server.py   (stdio MCP)
 from __future__ import annotations
 
 import asyncio
+import hmac
+import os
 
 import core
 import jevkit
 import jobfit
+import ledger
 
 # Compat: mcp v1 exposes FastMCP; v2 renamed it to MCPServer. Both have .tool()/.run().
 try:
@@ -104,5 +107,43 @@ async def job_fit(posting: dict) -> dict:
     return await jobfit.run_job_fit(posting)
 
 
+def _bearer_guard(app, token: str):
+    """ASGI wrapper: require `Authorization: Bearer <token>` on every HTTP request.
+    Lifespan and other scopes pass through untouched so the app starts normally."""
+    expected = f"Bearer {token}".encode()
+
+    async def guarded(scope, receive, send):
+        if scope.get("type") == "http":
+            headers = dict(scope.get("headers") or [])
+            got = headers.get(b"authorization", b"")
+            if not hmac.compare_digest(got, expected):
+                await send({"type": "http.response.start", "status": 401,
+                            "headers": [(b"content-type", b"text/plain")]})
+                await send({"type": "http.response.body", "body": b"unauthorized"})
+                return
+        await app(scope, receive, send)
+
+    return guarded
+
+
+def _run_http(port: int) -> None:
+    """Serve the SAME MCP over streamable-HTTP, for clients that cannot do stdio
+    over SSH (e.g. Windows OpenSSH). Bind to a private host (the mini's Tailscale
+    IP) and require a bearer token when TS_MCP_HTTP_TOKEN is set. The TypeSafe key
+    never leaves the mini: this only changes the transport, not where it runs."""
+    import uvicorn
+
+    host = ledger._env("TS_MCP_HTTP_HOST") or "127.0.0.1"
+    token = ledger._env("TS_MCP_HTTP_TOKEN")
+    app = mcp.streamable_http_app()
+    if token:
+        app = _bearer_guard(app, token)
+    uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
 if __name__ == "__main__":
-    mcp.run()
+    _http_port = os.environ.get("TS_MCP_HTTP_PORT") or ledger._env("TS_MCP_HTTP_PORT")
+    if _http_port:
+        _run_http(int(_http_port))
+    else:
+        mcp.run()
