@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.remotework.typesafe-mcp-http</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/remotework/typesafe-mcp/.venv/bin/python</string>
+    <string>/Users/remotework/typesafe-mcp/server.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/remotework/typesafe-mcp</string>
+  <!-- HTTP mode is opt-in via these env vars; only THIS service gets them, so
+       the many stdio spawns of server.py stay stdio. The bearer token lives in
+       ~/typesafe-mcp/.env (TS_MCP_HTTP_TOKEN), not here. Bound to the mini's
+       Tailscale IP: reachable only over the private tailnet, never the internet. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TS_MCP_HTTP_PORT</key>
+    <string>11451</string>
+    <key>TS_MCP_HTTP_HOST</key>
+    <string>100.70.244.85</string>
+  </dict>
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/remotework/typesafe-mcp/mcp-http.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/remotework/typesafe-mcp/mcp-http.err.log</string>
+</dict>
+</plist>
