@@ -14,6 +14,7 @@ import asyncio
 
 import core
 import jevkit
+import jobfit
 
 # Compat: mcp v1 exposes FastMCP; v2 renamed it to MCPServer. Both have .tool()/.run().
 try:
@@ -89,6 +90,18 @@ async def classify_push_failure(error_text: str) -> dict:
     needed, a severity score, and code-owned suggested fixes.
     """
     return await asyncio.to_thread(jevkit.classify_push_failure, error_text)
+
+
+@mcp.tool()
+async def job_fit(posting: dict) -> dict:
+    """Triage a job posting for the nightly employment routine (career-ops + TypeSafe).
+
+    posting: {title, company?, location?, url?, body}. Runs the real job-fit thresholds
+    by subprocess and returns {decision, action, fit, reasons[], cost_usd, title}, where
+    decision is auto_apply | joint_eval | drop, or "manual" (with a reason) if job-fit
+    could not run. Every failure hands the posting to a person, never to auto-apply.
+    """
+    return await jobfit.run_job_fit(posting)
 
 
 if __name__ == "__main__":

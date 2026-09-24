@@ -19,8 +19,11 @@ import asyncio
 import json
 import os
 import re
+import time
 
 import httpx
+
+import ledger
 
 TS_URL = os.environ.get("TS_MCP_TS_URL", "https://api.typesafe.ai/v1/systemone")
 TS_MODEL_DEFAULT = (os.environ.get("TYPESAFE_MODEL") or "jev-1.13.0")  # fijado: los alias se mueven, los umbrales no
@@ -254,11 +257,38 @@ async def _llm_json(client: httpx.AsyncClient, messages: list) -> dict:
     raise RuntimeError("no fleet host compiled the request: " + "; ".join(errors))
 
 
-async def _ts_execute(client: httpx.AsyncClient, request: dict) -> dict:
-    r = await client.post(TS_URL, json=request,
-                          headers={"Authorization": f"Bearer {_key()}"}, timeout=60)
-    r.raise_for_status()
-    return r.json()
+async def _ts_execute(client: httpx.AsyncClient, request: dict,
+                      caller: str = "mcp.systemone", pack: str | None = None) -> dict:
+    # Single point every judge/rerank/systemone call passes through, so the
+    # usage ledger records here. Fire-and-forget; a ledger failure never breaks
+    # the judgment (record_jev_call cannot raise, and the whole call is guarded).
+    started = time.monotonic()
+    state_hash = ledger.hash_state(request.get("state"))
+    n_questions = len(request.get("questions") or {})
+    try:
+        r = await client.post(TS_URL, json=request,
+                              headers={"Authorization": f"Bearer {_key()}"}, timeout=60)
+        r.raise_for_status()
+        resp = r.json()
+    except Exception as e:
+        try:
+            ledger.record_jev_call(
+                caller=caller, pack=pack, model=request.get("model"),
+                n_questions=n_questions, latency_ms=int((time.monotonic() - started) * 1000),
+                fallback=True, error=str(e)[:500], state_hash=state_hash)
+        except Exception:
+            pass
+        raise
+    try:
+        ledger.record_jev_call(
+            caller=caller, pack=pack, model=request.get("model"),
+            n_questions=n_questions,
+            input_tokens=(resp.get("usage") or {}).get("input_tokens"),
+            latency_ms=int((time.monotonic() - started) * 1000),
+            fallback=False, state_hash=state_hash)
+    except Exception:
+        pass
+    return resp
 
 
 # ---- core operations (also unit-testable without MCP) ----------------------
@@ -273,14 +303,14 @@ async def do_judge(text: str, content: str | None = None, ts_model: str = TS_MOD
         if state is None:
             raise RuntimeError("no content to evaluate: pass it in the text or in `content`")
         request = {"model": ts_model, "state": state, "questions": questions}
-        resp = await _ts_execute(client, request)
+        resp = await _ts_execute(client, request, caller="mcp.judge")
     return {"request": request, "answers": resp.get("answers", {}), "usage": resp.get("usage", {})}
 
 
 async def do_systemone(state, questions: dict, ts_model: str = TS_MODEL_DEFAULT) -> dict:
     request = {"model": ts_model, "state": state, "questions": _validate_questions(questions)}
     async with httpx.AsyncClient() as client:
-        resp = await _ts_execute(client, request)
+        resp = await _ts_execute(client, request, caller="mcp.systemone")
     return {"model": resp.get("model"), "answers": resp.get("answers", {}), "usage": resp.get("usage", {})}
 
 
@@ -344,7 +374,7 @@ async def do_rerank(items: list, criterion: str, ts_model: str = TS_MODEL_DEFAUL
             }
             try:
                 resp = await _ts_execute(client, {"model": ts_model, "state": state,
-                                                  "questions": questions})
+                                                  "questions": questions}, caller="mcp.rerank")
             except httpx.HTTPError as e:
                 return [{"id": it["id"], "error": str(e)} for it in chunk]
 
