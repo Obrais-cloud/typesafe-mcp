@@ -132,10 +132,16 @@ def _run_http(port: int) -> None:
     IP) and require a bearer token when TS_MCP_HTTP_TOKEN is set. The TypeSafe key
     never leaves the mini: this only changes the transport, not where it runs."""
     import uvicorn
+    from mcp.server.transport_security import TransportSecuritySettings
 
     host = ledger._env("TS_MCP_HTTP_HOST") or "127.0.0.1"
     token = ledger._env("TS_MCP_HTTP_TOKEN")
-    app = mcp.streamable_http_app()
+    # The clients here are MCP CLIs, not browsers, so DNS-rebinding protection (a
+    # browser-only attack) does not apply and would otherwise 421 any non-local
+    # Host header. Access is gated by the bearer token and the private Tailscale
+    # bind instead.
+    sec = TransportSecuritySettings(enable_dns_rebinding_protection=False)
+    app = mcp.streamable_http_app(transport_security=sec, host=host)
     if token:
         app = _bearer_guard(app, token)
     uvicorn.run(app, host=host, port=port, log_level="warning")
