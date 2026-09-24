@@ -195,9 +195,8 @@ las demás máquinas van por **SSH-stdio al mini** para que la key siga solo en 
 | Mac Studio Claude Code | ✔ registrado + **Connected** | SSH-stdio a `remotework@100.70.244.85` (tiene clave); CLAUDE.md block ✔ |
 | mini Claude Code (local) | ✔ registrado + **Connected** | comando local `.venv/bin/python server.py`; CLAUDE.md block ✔ |
 | **Hermes** | ✔ **YA registrado** | `~/.hermes/config.yaml` → `mcp_servers.typesafe` (mismo comando del mini). Las tools nuevas (job_fit, etc.) aparecen tras el redeploy del mini. |
-| **openclaw** | ✅ **YA registrado + enabled (corrección)** | La config activa de MCP es `~/.openclaw/openclaw.json` → `.mcp.servers` (NO `mcp-config.json`, que es un fichero legado/sin uso; ahí miré por error antes). `typesafe` está en `openclaw.json` con `enabled:true`, stdio, `command=~/typesafe-mcp/.venv/bin/python server.py`, `codex.agents:["main"]`. **Ningún watchdog lo revierte**: `auto-repair`/`ai-watchdog` hacen ediciones `jq` puntuales (preservan `.mcp.servers`), `backup-config` solo copia, y NO existe `openclaw.json.master-backup` (`restore-config.sh` es no-op). Se **spawnea bajo demanda** por el agente `main`, así que la próxima llamada arranca el `server.py` recién desplegado (job_fit + ledger) **sin reiniciar el gateway**. |
-| **alien18** (Windows) | ⏸ **REPORTADO** | Tiene Claude Code, pero `ssh remotework@mini` = `Permission denied (publickey)` → sin clave al mini. El brief prohíbe copiar la key → no registro. |
-| **corsairai** (Windows) | ⏸ **REPORTADO** | Tiene Claude Code, pero `ssh remotework@mini` = `Host key verification failed` → sin acceso al mini. Igual: no copio la key. |
+| **openclaw** | ✅ **YA registrado + enabled (corrección)** | La config activa de MCP es `~/.openclaw/openclaw.json` → `.mcp.servers` (NO `mcp-config.json`, que es un fichero legado/sin uso; ahí miré por error antes). `typesafe` está en `openclaw.json` con `enabled:true`, stdio, `command=~/typesafe-mcp/.venv/bin/python server.py`, `codex.agents:["main"]`. **Ningún watchdog lo revierte**: `auto-repair`/`ai-watchdog` hacen ediciones `jq` puntuales (preservan `.mcp.servers`), `backup-config` solo copia, y NO existe `openclaw.json.master-backup` (`restore-config.sh` es no-op). Tiene una **conexión viva** (proceso `server.py` persistente en el mini; mi grep anterior lo perdió porque `.venv/bin/python` resuelve a la ruta de homebrew). Tras forzar reconexión, openclaw/hermes/mac-studio quedaron sobre el server **recién desplegado** (`1eb90ce`, con ledger + job_fit) **sin reiniciar el gateway**. |
+| **alien18 / corsairai** (Windows) | ⚠️ **acceso listo, transporte no** | Les di **acceso SSH restringido al mini** (clave ed25519 con `authorized_keys` **forced-command**: solo arranca `server.py`, sin shell/forwarding/pty; alien18 reusó su clave, a corsairai se la generé). La autenticación funciona. **Pero** el handshake MCP (stdio-sobre-SSH) desde **Windows OpenSSH** hace timeout (30s), mientras que el MISMO server responde en 2s desde macOS (MacBook/Mac Studio) — limitación de piping stdio de Windows OpenSSH, no del server ni del acceso. Quité el registro que fallaba (evita 30s de penalización por sesión). **Fix limpio propuesto:** exponer typesafe como MCP HTTP/SSE en la IP Tailscale del mini (privado, no internet) y registrar TODAS las máquinas por URL — elimina la fragilidad del stdio-SSH y sirve también a Windows. |
 
 - Bloque "Juicios con Jev" añadido en CLAUDE.md de MacBook, Mac Studio y mini. En Hermes/openclaw
   NO edité su prompt de sistema (misma fragilidad de gateway) — pendiente de confirmar.
@@ -295,17 +294,18 @@ ssh macmini 'cat ~/typesafe-mcp/DEPLOYED_REV; launchctl list | grep typesafe'
 # router-shadow espeja al 100% (incondicional):  ~/ollaroute/src/ollaroute/server.py:160 (en el mini)
 ```
 
-### PENDIENTE (solo 1 ítem — openclaw ya estaba resuelto)
-1. **alien18/corsairai (Windows):** tienen Claude Code pero sin clave SSH al mini; no copié la key de
-   TypeSafe (regla del brief). Para registrarlos: darles clave al mini y `claude mcp add ... -- ssh
-   remotework@100.70.244.85 ~/typesafe-mcp/.venv/bin/python ~/typesafe-mcp/server.py`.
+### PENDIENTE (solo el transporte de Windows)
+1. **alien18/corsairai:** acceso SSH restringido al mini LISTO, pero el MCP stdio-sobre-SSH no conecta
+   desde Windows OpenSSH (timeout; macOS sí). **Fix limpio:** MCP HTTP/SSE en la IP Tailscale del mini
+   y registrar todas las máquinas por URL (privado, no internet). Es un cambio pequeño en `server.py`
+   (`mcp.run(transport=...)`) + un launchd en el mini. A confirmar contigo si lo hago.
 
-**openclaw NO era un problema:** `typesafe` ya está registrado y `enabled` en `openclaw.json`
-(`.mcp.servers`, agente `main`); ningún watchdog lo revierte; se spawnea bajo demanda y tomará las
-tools nuevas + el ledger en la próxima llamada, sin reinicio de gateway. (Mi reporte anterior miró el
-fichero equivocado, `mcp-config.json`.)
+**openclaw NO era un problema:** `typesafe` está registrado, `enabled` y **conectado en vivo** en
+`openclaw.json` (`.mcp.servers`, agente `main`); ningún watchdog lo revierte. (Mi reporte anterior miró
+el fichero equivocado — `mcp-config.json` — y el grep de procesos perdió el server.py por la ruta.)
 
-_El ledger, job_fit, los puntos de decisión nuevos y el registro MCP están operativos y verificados._
+_Ledger, job_fit, puntos de decisión nuevos y registro MCP (MacBook/Mac Studio/mini/Hermes/openclaw)
+operativos y verificados. Solo Windows queda por transporte._
 
 ## Resumen final por caller
 
