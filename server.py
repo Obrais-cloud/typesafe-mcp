@@ -142,7 +142,10 @@ def _run_http(port: int) -> None:
 
 
 if __name__ == "__main__":
-    _http_port = os.environ.get("TS_MCP_HTTP_PORT") or ledger._env("TS_MCP_HTTP_PORT")
+    # HTTP mode is opt-in via a real environment variable ONLY (set by the
+    # dedicated launchd service). It is deliberately NOT read from .env, so the
+    # many stdio spawns of this server (openclaw/hermes/mac-studio/…) stay stdio.
+    _http_port = os.environ.get("TS_MCP_HTTP_PORT")
     if _http_port:
         _run_http(int(_http_port))
     else:
