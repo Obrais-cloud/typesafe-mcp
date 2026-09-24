@@ -196,7 +196,7 @@ las demás máquinas van por **SSH-stdio al mini** para que la key siga solo en 
 | mini Claude Code (local) | ✔ registrado + **Connected** | comando local `.venv/bin/python server.py`; CLAUDE.md block ✔ |
 | **Hermes** | ✔ **YA registrado** | `~/.hermes/config.yaml` → `mcp_servers.typesafe` (mismo comando del mini). Las tools nuevas (job_fit, etc.) aparecen tras el redeploy del mini. |
 | **openclaw** | ✅ **YA registrado + enabled (corrección)** | La config activa de MCP es `~/.openclaw/openclaw.json` → `.mcp.servers` (NO `mcp-config.json`, que es un fichero legado/sin uso; ahí miré por error antes). `typesafe` está en `openclaw.json` con `enabled:true`, stdio, `command=~/typesafe-mcp/.venv/bin/python server.py`, `codex.agents:["main"]`. **Ningún watchdog lo revierte**: `auto-repair`/`ai-watchdog` hacen ediciones `jq` puntuales (preservan `.mcp.servers`), `backup-config` solo copia, y NO existe `openclaw.json.master-backup` (`restore-config.sh` es no-op). Tiene una **conexión viva** (proceso `server.py` persistente en el mini; mi grep anterior lo perdió porque `.venv/bin/python` resuelve a la ruta de homebrew). Tras forzar reconexión, openclaw/hermes/mac-studio quedaron sobre el server **recién desplegado** (`1eb90ce`, con ledger + job_fit) **sin reiniciar el gateway**. |
-| **alien18 / corsairai** (Windows) | ⚠️ **acceso listo, transporte no** | Les di **acceso SSH restringido al mini** (clave ed25519 con `authorized_keys` **forced-command**: solo arranca `server.py`, sin shell/forwarding/pty; alien18 reusó su clave, a corsairai se la generé). La autenticación funciona. **Pero** el handshake MCP (stdio-sobre-SSH) desde **Windows OpenSSH** hace timeout (30s), mientras que el MISMO server responde en 2s desde macOS (MacBook/Mac Studio) — limitación de piping stdio de Windows OpenSSH, no del server ni del acceso. Quité el registro que fallaba (evita 30s de penalización por sesión). **Fix limpio propuesto:** exponer typesafe como MCP HTTP/SSE en la IP Tailscale del mini (privado, no internet) y registrar TODAS las máquinas por URL — elimina la fragilidad del stdio-SSH y sirve también a Windows. |
+| **alien18 / corsairai** (Windows) | ✅ **Connected vía HTTP** | El stdio-sobre-SSH no funciona desde Windows OpenSSH (timeout; macOS sí). Solución montada: **transporte MCP HTTP** en el mini (ver abajo). Ambas registradas `--scope user --transport http http://100.70.244.85:11451/mcp` con `Authorization: Bearer <token>` → **√ Connected**. Bloque "Juicios con Jev" añadido en `%USERPROFILE%\.claude\CLAUDE.md`. Verificado end-to-end: `tools/call systemone` por HTTP dejó fila `mcp.systemone` (fallback=false). |
 
 - Bloque "Juicios con Jev" añadido en CLAUDE.md de MacBook, Mac Studio y mini. En Hermes/openclaw
   NO edité su prompt de sistema (misma fragilidad de gateway) — pendiente de confirmar.
@@ -294,18 +294,22 @@ ssh macmini 'cat ~/typesafe-mcp/DEPLOYED_REV; launchctl list | grep typesafe'
 # router-shadow espeja al 100% (incondicional):  ~/ollaroute/src/ollaroute/server.py:160 (en el mini)
 ```
 
-### PENDIENTE (solo el transporte de Windows)
-1. **alien18/corsairai:** acceso SSH restringido al mini LISTO, pero el MCP stdio-sobre-SSH no conecta
-   desde Windows OpenSSH (timeout; macOS sí). **Fix limpio:** MCP HTTP/SSE en la IP Tailscale del mini
-   y registrar todas las máquinas por URL (privado, no internet). Es un cambio pequeño en `server.py`
-   (`mcp.run(transport=...)`) + un launchd en el mini. A confirmar contigo si lo hago.
+### Transporte MCP HTTP en el mini (para Windows y quien no pueda stdio-SSH)
 
-**openclaw NO era un problema:** `typesafe` está registrado, `enabled` y **conectado en vivo** en
-`openclaw.json` (`.mcp.servers`, agente `main`); ningún watchdog lo revierte. (Mi reporte anterior miró
-el fichero equivocado — `mcp-config.json` — y el grep de procesos perdió el server.py por la ruta.)
+- **Servicio:** `com.remotework.typesafe-mcp-http` (launchd, KeepAlive), corre `server.py` en modo HTTP.
+  Escucha en **`100.70.244.85:11451`** (IP Tailscale del mini → red **privada**, no internet). Path `/mcp`.
+- **Modo dual seguro:** `server.py` arranca HTTP **solo** si la env var real `TS_MCP_HTTP_PORT` está puesta
+  (la pone el plist). NO se lee de `.env`, así que los muchos spawns stdio (openclaw/hermes/mac-studio/…)
+  siguen en stdio. Sin este cuidado, un `.env` compartido rompería todo.
+- **Auth:** `Authorization: Bearer <TS_MCP_HTTP_TOKEN>` (token de 32 bytes en el `.env` del mini, 600).
+  Sin token → 401. DNS-rebinding protection desactivada (clientes CLI, no navegadores; gate = token+Tailscale).
+- **Registrar otra máquina:** `claude mcp add --scope user --transport http typesafe http://100.70.244.85:11451/mcp --header "Authorization: Bearer <token>"`.
+- **Reiniciar el servicio:** `ssh macmini launchctl kickstart -k gui/\$(id -u)/com.remotework.typesafe-mcp-http`.
 
-_Ledger, job_fit, puntos de decisión nuevos y registro MCP (MacBook/Mac Studio/mini/Hermes/openclaw)
-operativos y verificados. Solo Windows queda por transporte._
+**TODO COMPLETO — sin pendientes.** Ledger (rol anon), job_fit, puntos de decisión nuevos, y registro MCP
+en **MacBook, Mac Studio, mini, Hermes, openclaw (stdio) + alien18, corsairai (HTTP)** — operativos y
+verificados. openclaw: `typesafe` registrado, `enabled` y conectado en vivo (`openclaw.json .mcp.servers`),
+ningún watchdog lo revierte.
 
 ## Resumen final por caller
 
