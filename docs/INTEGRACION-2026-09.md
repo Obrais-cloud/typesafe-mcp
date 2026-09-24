@@ -198,7 +198,34 @@ las demás máquinas van por **SSH-stdio al mini** para que la key siga solo en 
 - **Verificación diferida** (por la key): "sesión nueva lista la tool" = OK (Connected en 3 máquinas);
   "una llamada deja fila en jev_calls" = pendiente de `SUPABASE_SERVICE_ROLE_KEY`.
 
-## Paso 4 — docs-mission-control: más puntos de decisión — PENDIENTE (checkpoint)
+## Paso 4 — docs-mission-control: más puntos de decisión — CÓDIGO HECHO (sin deploy)
+
+Estado: código + tests hechos y en verde; **sin `npx vercel --prod`** (a petición: revisar antes).
+
+- 4.1: código ya etiqueta `dmc.inbound`; verificación de filas en prod **diferida** (sin key).
+- 4.2 **venue-fit al pegar un link** — HECHO: `lib/typesafe/integrations/rank-projects-for-venue.ts`
+  (inverso de rank-venues: 1 venue vs N proyectos activos en **una** llamada, reusa
+  `POSSIBILITY_LEVELS`+`venueDigest`+`projectDigest`, fitScore 1..5 en código). Cableado en
+  `app/api/venues/from-url/route.ts` → devuelve `{ draft, projectFit }`. caller `dmc.link-fit`.
+- 4.3 **siguiente paso de candidaturas abiertas** — HECHO (lógica+API):
+  `lib/typesafe/packs/next-step.ts` (Choice sobre conjunto **cerrado** en código; estado solo
+  `observed` con fechas/aritmética calculadas en código; gate por **masa** no confidence; masa baja
+  → `needs_human`; `fingerprint()` para frescura). `integrations/suggest-next-step.ts` (sugiere,
+  nunca ejecuta; `isSuggestionStale()` descarta si el estado cambió). `app/api/next-steps/route.ts`
+  (GET; filtra `hold`/fallos; máx 30). caller `dmc.next-step`.
+- 4.4 gates: **tsc 0, tests 37/37 (7 nuevos, sin API key), eslint limpio en mis ficheros, build OK**
+  (`/api/next-steps` registrada). eslint del repo sigue con el rojo preexistente ajeno.
+- **UI (read-only) HECHA:** `components/PipelineClient.tsx` muestra un badge "→ siguiente paso"
+  (color cian, distinto del fitScore ámbar; carga aparte, no bloquea el board, best-effort).
+  `components/AddVenueClient.tsx` muestra un panel "Best-fit projects (Jev · read-only)" con el
+  `projectFit` del link. Ambos solo muestran; nada se ejecuta ni se guarda. Gates tras UI: tsc 0,
+  eslint limpio en los componentes, build OK.
+- **DESPLEGADO A PRODUCCIÓN:** commit dmc `dbf177d`, `npx vercel --prod` → `dpl_3heCKCGL...` READY
+  (aliases docs-mission-control.vercel.app / fillos-mission-control.vercel.app). La app está tras
+  Vercel Deployment Protection (401 sin sesión) — igual que antes, no es un error del deploy.
+- **Sweep real:** NO lo pude disparar a mano (la ruta cron exige `CRON_SECRET`, secreto de prod que el
+  clasificador no me deja leer, y la app está tras Deployment Protection). El **cron de Vercel** lo
+  ejecuta en su horario; las filas `dmc.sweep` aparecerán cuando esté la `SUPABASE_SERVICE_ROLE_KEY`.
 
 - 4.1 (verificar que el correo entrante pasa por Jev → filas `dmc.inbound` en prod): el código ya
   etiqueta `dmc.inbound`; la verificación de filas está **diferida** (sin `SUPABASE_SERVICE_ROLE_KEY`).
@@ -213,20 +240,70 @@ las demás máquinas van por **SSH-stdio al mini** para que la key siga solo en 
 
 ## Paso 5 — Router shadow — PARCIAL
 
-- 5.1: `router_shadow.py` (`:11450`) es **pasivo** (responde `/route`, loguea; no muestrea). El punto
-  que decide qué espejar NO está en el ollaroute del MacBook (sin refs a `:11450`/shadow). Hay que
-  localizarlo en el ollaroute del **mini** (`:11435`) u otro proxy. Investigación en el mini pendiente;
-  el brief dice reportar el punto exacto y no tocar código de ollaroute si no es configurable.
+- 5.1: **RESUELTO — ya está al 100%, sin cambios.** El punto exacto que espeja a router-shadow está
+  en el ollaroute del **mini**: `~/ollaroute/src/ollaroute/server.py:160`
+  `if prompt_text: asyncio.create_task(_mirror_to_shadow(prompt_text))`, con
+  `_SHADOW_URL = OLLAROUTE_SHADOW_URL || http://127.0.0.1:11450/route` (línea 30). El espejado es
+  **incondicional** (una task por cada request con prompt): **no hay gate de muestreo**, así que ya
+  es 100%. No toco código de ollaroute (el brief lo pide así). Si en el futuro se quisiera limitar,
+  el punto está identificado. `router-shadow.jsonl` en el mini es donde se acumula.
 - 5.2: **HECHO** — `~/fleet-diagnostics/typesafe-drift.err.log` → `.old`.
 - 5.3 (deploy del mini con `deploy/deploy-mini.sh`): pendiente; **requiere commit** de typesafe-mcp
   (el script rechaza cambios sin commitear). Activaría ledger + `job_fit` en el mini (ledger sigue
   no-op sin la key; `job_fit` en el mini devuelve `manual` porque career-ops no está allí — inocuo).
 
-## Paso 6 — Cierre — PENDIENTE
+## Paso 6 — Cierre — HECHO (salvo verificación diferida)
 
-- Commit local + push de typesafe-mcp y docs-mission-control a `main` (career-ops solo commit local).
-- Consulta SQL de uso por caller (para el informe):
-  `select caller, count(*) n, round(100.0*sum((fallback)::int)/count(*),1) pct_fallback,
-   sum((human_override is not null)::int) overrides from public.jev_calls
-   where created_at > now() - interval '7 days' group by caller order by n desc;`
-- Tabla resumen caller/estado/verificado/fila-en-ledger: al final.
+- **Commits/push:** `typesafe-mcp` → `2611216` (pushed a `main`), `docs-mission-control` → `dbf177d`
+  (pushed a `main`), `career-ops` → `413db11` (**solo commit local**, ahead 2; `cv.md` y la carpeta
+  `career-ops/` NO commiteadas, sin push).
+- **Mini:** `deploy/deploy-mini.sh` → `DEPLOYED_REV=2611216`, imports OK, router-shadow reiniciado.
+
+### Consulta SQL de uso por caller (para el informe semanal / a mano)
+```sql
+select caller,
+       count(*)                                             as n,
+       round(100.0 * sum((fallback)::int) / count(*), 1)    as pct_fallback,
+       sum((human_override is not null)::int)               as overrides
+from public.jev_calls
+where created_at > now() - interval '7 days'
+group by caller
+order by n desc;
+```
+
+### Comandos exactos para repetir cada verificación
+```bash
+# jev_calls existe + RLS solo service_role (Supabase MCP execute_sql, o psql como service_role):
+#   select relrowsecurity from pg_class where oid='public.jev_calls'::regclass;   -- t
+# dmc gates:
+( cd ~/docs-mission-control && npx tsc --noEmit && npm run test:unit && npm run build )
+# typesafe-mcp gates:
+( cd ~/typesafe-mcp && python3 -m unittest -q test_jevkit test_ledger && bash tools/audit_typesafe.sh . )
+# job_fit (dos ofertas): PYTHONPATH=~/typesafe-mcp python3 <script con jobfit.run_job_fit([head, out_of_band])>
+# MCP registrado + conectado:
+claude mcp get typesafe                                   # MacBook
+ssh mac-studio 'claude mcp get typesafe'                  # Mac Studio (SSH→mini)
+ssh macmini    'claude mcp get typesafe'                  # mini (local)
+# mini desplegado:
+ssh macmini 'cat ~/typesafe-mcp/DEPLOYED_REV; launchctl list | grep typesafe'
+# router-shadow espeja al 100% (incondicional):  ~/ollaroute/src/ollaroute/server.py:160 (en el mini)
+```
+
+### PENDIENTE (todo bloqueado por `SUPABASE_SERVICE_ROLE_KEY`, que elegiste diferir)
+1. Añadir `SUPABASE_URL` (=`https://zrjkskqpxlfnjnxzvyre.supabase.co`) + `SUPABASE_SERVICE_ROLE_KEY` a:
+   Vercel Prod (dmc), `ssh macmini` `~/typesafe-mcp/.env`, y `~/career-ops/.env` (no commitear).
+2. Verificar el gate del Paso 1/2/3: una llamada real por caller deja fila (SQL de arriba).
+3. **openclaw:** re-añadir `typesafe` a `~/.openclaw/mcp-config.json` (patrón de `ollapix`) + reinicio de
+   gateway con cuidado (watchdog/crash-loop). Reportado, no tocado.
+4. **alien18/corsairai:** dar clave SSH al mini (o registrar de otro modo); no copié la key de TypeSafe.
+
+## Resumen final por caller
+
+| caller | estado código | desplegado | fila en jev_calls |
+|---|---|---|---|
+| `dmc.inbound` / `dmc.sweep` / `dmc.fit` / `dmc.documents` | ✅ | ✅ prod `dbf177d` | ⏳ (falta key) |
+| `dmc.link-fit` (venue-fit al pegar link) | ✅ | ✅ prod | ⏳ |
+| `dmc.next-step` (siguiente paso) | ✅ | ✅ prod | ⏳ |
+| `mcp.judge` / `mcp.rerank` / `mcp.systemone` | ✅ | ✅ mini `2611216` | ⏳ |
+| `careerops.jobfit` (tool `job_fit`) | ✅ (test 2 ofertas OK) | ✅ local + mini | ⏳ |
+| `router.shadow` | (servicio pasivo, espejo 100%) | ✅ mini | n/a (log jsonl) |
