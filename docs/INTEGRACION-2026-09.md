@@ -195,7 +195,7 @@ las demás máquinas van por **SSH-stdio al mini** para que la key siga solo en 
 | Mac Studio Claude Code | ✔ registrado + **Connected** | SSH-stdio a `remotework@100.70.244.85` (tiene clave); CLAUDE.md block ✔ |
 | mini Claude Code (local) | ✔ registrado + **Connected** | comando local `.venv/bin/python server.py`; CLAUDE.md block ✔ |
 | **Hermes** | ✔ **YA registrado** | `~/.hermes/config.yaml` → `mcp_servers.typesafe` (mismo comando del mini). Las tools nuevas (job_fit, etc.) aparecen tras el redeploy del mini. |
-| **openclaw** | ⏸ **REPORTADO, no tocado** | `mcp-config.json` tiene filesystem/github/brave-search/ollapix; **no** typesafe (fue podado, ver `.bak-mcpclean`). Añadirlo exige editar config + **reiniciar el gateway**, que la memoria marca como frágil (watchdog reinicia al tocar config, crash-loop, tmp-leak). Stop condition del brief → lo dejo para confirmar contigo. Entrada a añadir: igual que `ollapix` pero con `.venv/bin/python ~/typesafe-mcp/server.py`. |
+| **openclaw** | ✅ **YA registrado + enabled (corrección)** | La config activa de MCP es `~/.openclaw/openclaw.json` → `.mcp.servers` (NO `mcp-config.json`, que es un fichero legado/sin uso; ahí miré por error antes). `typesafe` está en `openclaw.json` con `enabled:true`, stdio, `command=~/typesafe-mcp/.venv/bin/python server.py`, `codex.agents:["main"]`. **Ningún watchdog lo revierte**: `auto-repair`/`ai-watchdog` hacen ediciones `jq` puntuales (preservan `.mcp.servers`), `backup-config` solo copia, y NO existe `openclaw.json.master-backup` (`restore-config.sh` es no-op). Se **spawnea bajo demanda** por el agente `main`, así que la próxima llamada arranca el `server.py` recién desplegado (job_fit + ledger) **sin reiniciar el gateway**. |
 | **alien18** (Windows) | ⏸ **REPORTADO** | Tiene Claude Code, pero `ssh remotework@mini` = `Permission denied (publickey)` → sin clave al mini. El brief prohíbe copiar la key → no registro. |
 | **corsairai** (Windows) | ⏸ **REPORTADO** | Tiene Claude Code, pero `ssh remotework@mini` = `Host key verification failed` → sin acceso al mini. Igual: no copio la key. |
 
@@ -295,10 +295,15 @@ ssh macmini 'cat ~/typesafe-mcp/DEPLOYED_REV; launchctl list | grep typesafe'
 # router-shadow espeja al 100% (incondicional):  ~/ollaroute/src/ollaroute/server.py:160 (en el mini)
 ```
 
-### PENDIENTE (solo 2 ítems, ambos requieren tu decisión — el ledger YA funciona)
-1. **openclaw:** re-añadir `typesafe` a `~/.openclaw/mcp-config.json` (patrón de `ollapix`) + reinicio de
-   gateway con cuidado (watchdog/crash-loop). Reportado, no tocado.
-2. **alien18/corsairai:** dar clave SSH al mini (o registrar de otro modo); no copié la key de TypeSafe.
+### PENDIENTE (solo 1 ítem — openclaw ya estaba resuelto)
+1. **alien18/corsairai (Windows):** tienen Claude Code pero sin clave SSH al mini; no copié la key de
+   TypeSafe (regla del brief). Para registrarlos: darles clave al mini y `claude mcp add ... -- ssh
+   remotework@100.70.244.85 ~/typesafe-mcp/.venv/bin/python ~/typesafe-mcp/server.py`.
+
+**openclaw NO era un problema:** `typesafe` ya está registrado y `enabled` en `openclaw.json`
+(`.mcp.servers`, agente `main`); ningún watchdog lo revierte; se spawnea bajo demanda y tomará las
+tools nuevas + el ledger en la próxima llamada, sin reinicio de gateway. (Mi reporte anterior miró el
+fichero equivocado, `mcp-config.json`.)
 
 _El ledger, job_fit, los puntos de decisión nuevos y el registro MCP están operativos y verificados._
 
