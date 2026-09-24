@@ -64,7 +64,8 @@ def env(name):
             pass
     return None
 
-url, key = env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY")
+url = env("SUPABASE_URL")
+key = env("SUPABASE_SERVICE_ROLE_KEY") or env("SUPABASE_ANON_KEY")
 if not url or not key:
     print("(ledger no configurado en esta máquina: falta SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY)")
 else:

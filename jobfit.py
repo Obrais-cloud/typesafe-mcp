@@ -66,7 +66,7 @@ async def run_job_fit(posting, timeout: float = DEFAULT_TIMEOUT_S,
         return {"decision": "manual", "reason": f"no TypeSafe key: {str(e)[:200]}"}
     # Pass ledger creds through if this machine has them, so the mjs records a
     # careerops.jobfit row. Absent → the mjs simply no-ops the ledger.
-    for var in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
+    for var in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY"):
         val = ledger._env(var)
         if val:
             env[var] = val

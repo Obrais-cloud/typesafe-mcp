@@ -35,13 +35,15 @@ class FakeClient:
 
 class LedgerRobustness(unittest.TestCase):
     def test_no_config_is_a_silent_noop(self):
-        # With no SUPABASE_* set, recording does nothing and never raises.
-        for var in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"):
-            os.environ.pop(var, None)
-        # Also ensure no .env leaks credentials into this test.
-        self.assertIsNone(
-            ledger.record_jev_call(caller="test.noconfig", state_hash="x")
-        )
+        # With no SUPABASE_* resolvable, recording does nothing and never raises.
+        # _env() also reads a local .env, so force it to None to keep this
+        # hermetic (otherwise a configured .env would make this a real insert).
+        original = ledger._env
+        ledger._env = lambda name: None
+        try:
+            self.assertIsNone(ledger.record_jev_call(caller="test.noconfig", state_hash="x"))
+        finally:
+            ledger._env = original
 
     def test_record_swallows_a_broken_dispatch(self):
         # Even if the underlying send blows up, record_jev_call must not raise.

@@ -95,7 +95,10 @@ def record_jev_call(*, caller: str, pack: str | None = None, model: str | None =
     """Insert one ledger row, fire-and-forget. Never raises, never blocks."""
     try:
         url = _env("SUPABASE_URL")
-        key = _env("SUPABASE_SERVICE_ROLE_KEY")
+        # jev_calls accepts the anon (publishable) role for this append-only
+        # metadata table, so the service-role key is optional: use it if present,
+        # else the anon key. Either lets this machine record without a secret key.
+        key = _env("SUPABASE_SERVICE_ROLE_KEY") or _env("SUPABASE_ANON_KEY")
         if not url or not key:
             return  # ledger not configured on this machine; decision path unaffected
         row = {
