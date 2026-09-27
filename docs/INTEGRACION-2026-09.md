@@ -323,3 +323,12 @@ ningún watchdog lo revierte.
 | `router.shadow` | (servicio pasivo, espejo 100%) | ✅ mini | n/a (log jsonl) |
 
 Commits finales: dmc `34257e4`, typesafe-mcp `1eb90ce`, career-ops `02c60fe` (local, ahead 3).
+
+## Re-verificación 2026-09-27 (solo lectura, sin cambios)
+
+- Repos: typesafe-mcp `ccf7255`, dmc `34257e4` limpios y en `origin/main`; career-ops `02c60fe` ahead 3 (local), `cv.md` y `career-ops/` sin commitear.
+- Mini: `DEPLOYED_REV=ce78839`; diff hasta `ccf7255` = solo este doc → no hace falta redeploy. `typesafe-mcp-http` y `router-shadow` con PID.
+- MCP `typesafe` Connected en MacBook, Mac Studio, mini (stdio) y alien18, corsairai (HTTP).
+- `jev_calls` últimos 7 días: **solo `dmc.sweep` (36 filas, 0 % fallback, 0 overrides)**. Cero filas de `mcp.*` y `careerops.jobfit` → los agentes y la rutina nocturna **no están llamando a Jev en uso real** todavía.
+- **4.1 `dmc.inbound` sin filas — causa:** falta de entrada, no un fallo. El bridge Apps Script ("Docs Mission Control mail bridge") solo publica los hilos con la etiqueta Gmail `Mission Control`; hay 0 pendientes y el último procesado (`Mission Control/done`) es del 21-09, anterior al ledger. Los logs de Vercel no muestran ningún `POST /api/inbound` del bridge desde el 21-09. El middleware (`proxy.ts:73`) deja pasar la ruta con el bearer y `INBOUND_SECRET` sigue en Production.
+- **Aparte (no Jev):** el 21-09, `/api/inbound` falló por el LLM primario → `ollama 400 "model is required"` → fallback → `inbound_failed` tras 3 intentos. Falta revisar la config del modelo primario en el entorno de Vercel.
