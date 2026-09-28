@@ -338,3 +338,9 @@ Commits finales: dmc `34257e4`, typesafe-mcp `1eb90ce`, career-ops `02c60fe` (lo
 - La rutina es la tarea programada de Cowork `weekly-job-scan` (`~/Documents/Claude/Scheduled/weekly-job-scan/SKILL.md`, backup `.bak-20260927`). Nuevo **Step 3.5 "Jev triage (job_fit)"**: `job_fit` es obligatorio para cada lead nuevo. Se decide sobre `decision`, nunca sobre la confianza. Los floors de comp y la aritmética siguen en el scoring de `_profile.md`. `auto_apply` solo recomienda. Los desacuerdos, `joint_eval` y `manual` se marcan "⚖ needs Brais". Si Jev falla, se sigue con el perfil y se anota. Columna "Jev" y `cost_usd` en el report y el email.
 - **Hueco encontrado:** `typesafe` había desaparecido de `claude_desktop_config.json`. Desktop reescribió el archivo el 24-09 a las 16:49, tras añadirlo con la app abierta. Se volvió a añadir con Desktop cerrado (backup `.bak-20260927`) y el log `mcp-server-typesafe.log` muestra "Server started and connected" + `tools/list`. **Gotcha:** editar esa config siempre con Desktop cerrado (Cmd+Q).
 - Smoke test `job_fit` en vivo: `joint_eval`, fit 0.84, fila `careerops.jobfit` con `fallback=false` y `jev-1.13.0`. Fila de prueba borrada.
+
+## LLM de dmc caído → arreglado (2026-09-27)
+
+- El funnel `:8443` que usa dmc para su LLM (Ollama del MacBook) devolvía 403. Causa: un `ollama serve` 0.34.3 huérfano, que sobrevivió a la actualización del 24-09, ocupaba `127.0.0.1:11434`. Parado con SIGTERM, el funnel responde 200 desde el mini con `llama3.1:8b` (~2 s) y `gemma4:31b-q8` (JSON válido, ~83 s).
+- `/api/inbound` da 45 s al LLM: con gemma4 en frío pasa al respaldo llama3.1, lo que es aceptable. No se ha cambiado la config de modelos.
+- **Riesgo preexistente, sin tocar:** el funnel expone Ollama sin autenticación a internet.
