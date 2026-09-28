@@ -344,3 +344,9 @@ Commits finales: dmc `34257e4`, typesafe-mcp `1eb90ce`, career-ops `02c60fe` (lo
 - El funnel `:8443` que usa dmc para su LLM (Ollama del MacBook) devolvía 403. Causa: un `ollama serve` 0.34.3 huérfano, que sobrevivió a la actualización del 24-09, ocupaba `127.0.0.1:11434`. Parado con SIGTERM, el funnel responde 200 desde el mini con `llama3.1:8b` (~2 s) y `gemma4:31b-q8` (JSON válido, ~83 s).
 - `/api/inbound` da 45 s al LLM: con gemma4 en frío pasa al respaldo llama3.1, lo que es aceptable. No se ha cambiado la config de modelos.
 - **Riesgo preexistente, sin tocar:** el funnel expone Ollama sin autenticación a internet.
+
+## Cierre 2026-09-27
+
+- **`dmc.inbound` VERIFICADO en producción:** se etiquetó un correo real (WorldFest60) como `Mission Control`. El bridge lo envió, dmc lo clasificó con Jev (fila `dmc.inbound`, `jev-1.13.0`, 15 preguntas, 252 ms, sin fallback) y con el LLM ya reparado. Resultado `inbound_digest` + venue nuevo (pendiente de revisión); el hilo pasó a `Mission Control/done`.
+- **Bloque "Juicios con Jev"** añadido a `~/.hermes/SOUL.md` y `~/.openclaw/workspace/AGENTS.md` en el mini (backups `.bak-20260927`).
+- **ollagate** (`~/ollagate`, GitHub privado `Obrais-cloud/ollagate`, forja): gate con token en `127.0.0.1:11471`, LaunchAgent `com.brais.ollagate`, probado (401 sin token, 200 con token). **NO activado en el funnel**: falta que dmc tenga el token. La auto-mode no permite a Claude escribir secretos en Vercel. Pasos: (1) poner el token de `~/ollagate/.env` en dmc → Settings → Ollama key; (2) `~/ollagate/activate.sh`. Hasta entonces el funnel sigue abierto sin auth.
